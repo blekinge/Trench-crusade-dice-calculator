@@ -3,10 +3,12 @@ package dk.askov.dicecalc;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.IntegerRange;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.tuple.Triple;
 
 import javax.annotation.Nullable;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -17,7 +19,7 @@ public class Calc {
     
     public static void main(String[] args) {
         int keep = 2;
-        IntegerRange diceNumber = IntegerRange.of(-2, 3);
+        IntegerRange diceNumber = IntegerRange.of(7, 7);
         
         diceNumber.toIntStream()
                   .mapToObj(dice -> calcValuesInjury(dice, keep))
@@ -64,14 +66,18 @@ public class Calc {
                                     .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
         
         var criteriaResults =
-            ranges.stream()
-                  .flatMap(range ->
-                               modifiers.toIntStream()
-                                        .mapToObj(modifier -> buildCriteriaResult(
-                                            range,
-                                            modifier,
-                                            getSuccessChance(calculations.get(modifier), range.criteria()))))
-                  .toList();
+            modifiers.toIntStream()
+                     .boxed()
+                     .map(modifier -> Triple.of(modifier,
+                                                calculations.get(modifier),
+                                                calculations.get(modifier).stream().mapToInt(DiceRoll::count).sum()))
+                     .flatMap(modifierPair -> ranges
+                         .stream()
+                         .map(range -> buildCriteriaResult(
+                             range,
+                             modifierPair.getLeft(),
+                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()))))
+                     .toList();
         return resultBuilder.results(criteriaResults).build();
     }
     
@@ -84,11 +90,14 @@ public class Calc {
             .build();
     }
     
-    private static Double getSuccessChance(List<DiceRoll> successGraph, Predicate<DiceRoll> diceRollPredicate) {
-        return successGraph.stream()
-                           .filter(diceRollPredicate)
-                           .mapToDouble(a -> 1)
-                           .sum() / successGraph.size();
+    private static Double getSuccessChance(List<DiceRoll> successGraph, Predicate<DiceRoll> diceRollPredicate,
+                                           Integer right) {
+        //int sum = successGraph.stream().mapToInt(DiceRoll::count).sum();
+        double sum1 = successGraph.stream()
+                                  .filter(diceRollPredicate)
+                                  .mapToDouble(a -> a.count() + 0.0)
+                                  .sum();
+        return sum1 / right;
     }
     
     private static List<DiceRoll> calcSuccess(int extraDice, int keep, int modifier) {
@@ -97,18 +106,24 @@ public class Calc {
                                     .toIntStream()
                                     .mapToObj(dice -> rangeClosed(1, 6).boxed().toList())
                                     .toList();
-        var allDiceRolls = Lists.cartesianProduct(diceRolls);
         
         Comparator<Integer> keepFunction = keepFunction(extraDice);
-        return allDiceRolls
+        Map<String, List<List<Integer>>> collect = Lists.cartesianProduct(diceRolls)
+                                                        .stream()
+                                                        .collect(Collectors.groupingBy(a -> a.stream()
+                                                                                             .sorted()
+                                                                                             .map(b -> "" + b)
+                                                                                             .collect(Collectors.joining())));
+        return collect
+            .values()
             .stream()
-            .map(roll -> roll
-                .stream()
-                .sorted(keepFunction)
-                .limit(keep)
-                .sorted()
-                .toList())
-            .map(roll -> new DiceRoll(roll, modifier))
+            .map(lists -> Map.entry(lists.getFirst(), lists.size()))
+            .map(roll -> new DiceRoll(roll.getKey()
+                                          .stream()
+                                          .sorted(keepFunction)
+                                          .limit(keep)
+                                          .sorted()
+                                          .toList(), modifier, roll.getValue()))
             .toList();
     }
     
