@@ -7,13 +7,13 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Builder
 public record CalcResult(int extraDice, List<CriteriaResult> results) {
     
-    @Override
-    public String toString() {
+    public String format() {
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); PrintStream out = new PrintStream(bytes)) {
             out.printf("Extra Dice=%+d%n", this.extraDice());
             int longestModifierRangeName = this.results().stream()
@@ -27,11 +27,11 @@ public record CalcResult(int extraDice, List<CriteriaResult> results) {
             if (!this.results().stream().allMatch(a -> a.modifier() == 0)) {
                 out.print(("Modifier" + " ".repeat(99)).substring(0, modifierRangeIndent - 1));
                 this.results()
-                      .stream()
-                      .map(CriteriaResult::modifier)
-                      .sorted()
-                      .distinct()
-                      .forEach(modifier -> out.printf("%+7d", modifier));
+                    .stream()
+                    .map(CriteriaResult::modifier)
+                    .sorted()
+                    .distinct()
+                    .forEach(modifier -> out.printf("%+7d", modifier));
                 out.println();
             }
             
@@ -56,9 +56,28 @@ public record CalcResult(int extraDice, List<CriteriaResult> results) {
             throw new RuntimeException(ex);
         }
     }
+    
+    @Override
+    public String toString() {
+        return "CalcResult{" +
+               "extraDice=" + extraDice +
+               ", results=" + results.stream().map(Record::toString).collect(Collectors.joining("\n")) +
+               '}';
+    }
 }
 
 
 @Builder
-record CriteriaResult(String name, int modifier, Double chance) {
+record CriteriaResult(SuccessCriteria successCriteria, int modifier, Double chance) {
+    public String name() {
+        return successCriteria.name();
+    }
+    
+    public Predicate<DiceRoll> criteria() {
+        return successCriteria.criteria();
+    }
+    
+    public int sort() {
+        return successCriteria.sort();
+    }
 }

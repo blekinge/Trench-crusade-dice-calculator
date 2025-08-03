@@ -6,11 +6,14 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.lang3.tuple.Triple;
 
 import javax.annotation.Nullable;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 import static java.util.stream.IntStream.rangeClosed;
@@ -21,31 +24,27 @@ public class Calc {
         int keep = 2;
         IntegerRange diceNumber = IntegerRange.of(7, 7);
         
+        IntegerRange injuryModifierRange = IntegerRange.of(-3, 2);
         diceNumber.toIntStream()
-                  .mapToObj(dice -> calcValuesInjury(dice, keep))
-                  .map(CalcResult::toString)
+                  .mapToObj(dice -> calcValuesInjury(dice, keep, injuryModifierRange))
+                  .map(CalcResult::format)
                   .forEach(System.out::println);
     }
     
-    public static CalcResult calcValuesInjury(int dice, int keep) {
+    public static CalcResult calcValuesInjury(int dice, int keep, IntegerRange injuryModifierRange) {
         var InjuryRanges = List.of(
-            new SuccessCriteria("Unscathed (1 or lower)", diceRoll -> diceRoll.score() <= 1),
-            new SuccessCriteria("Minor hit (2-6)", diceRoll -> IntegerRange.of(2, 6).contains(diceRoll.score())),
-            new SuccessCriteria("Down (7-8)", diceRoll -> IntegerRange.of(7, 8).contains(diceRoll.score())),
-            new SuccessCriteria("Out of action (9+)", diceRoll -> diceRoll.score() >= 9));
-        IntegerRange injuryModifierRange = IntegerRange.of(-3, 2);
+            SuccessCriteria.UNSCATHED,
+            SuccessCriteria.MINOR_HIT,
+            SuccessCriteria.DOWN,
+            SuccessCriteria.OUT_OF_ACTION);
         return calcValues(dice, keep, injuryModifierRange, InjuryRanges);
     }
     
     public static CalcResult calcValuesActions(int dice, int keep) {
         
-        var actionRanges = List.of(new SuccessCriteria("Failure", diceRoll -> diceRoll.score() <= 6),
-                                   new SuccessCriteria("Success", diceRoll -> diceRoll.score() >= 7),
-                                   new SuccessCriteria("Critical Success",
-                                                       diceroll -> diceroll.diceScores()
-                                                                           .stream()
-                                                                           .filter(a -> a == 6)
-                                                                           .count() == 2));
+        var actionRanges = List.of(SuccessCriteria.FAILURE,
+                                   SuccessCriteria.SUCCESS,
+                                   SuccessCriteria.CRITICAL_SUCCESS);
         
         return calcValues(dice, keep, null, actionRanges);
     }
@@ -60,10 +59,10 @@ public class Calc {
         
         IntegerRange modifiers = Optional.ofNullable(modifierRange).orElse(IntegerRange.of(0, 0));
         
-        var calculations = modifiers.toIntStream()
-                                    .mapToObj(modifier -> Pair.of(modifier,
-                                                                  calcSuccess(extraDice, keep, modifier)))
-                                    .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
+        var calculations =
+            modifiers.toIntStream()
+                     .mapToObj(modifier -> Pair.of(modifier, calcSuccess(extraDice, keep, modifier)))
+                     .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
         
         var criteriaResults =
             modifiers.toIntStream()
@@ -76,15 +75,18 @@ public class Calc {
                          .map(range -> buildCriteriaResult(
                              range,
                              modifierPair.getLeft(),
-                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()))))
+                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()),
+                             range.sort())))
+                     .sorted(Comparator.comparing(CriteriaResult::sort))
                      .toList();
         return resultBuilder.results(criteriaResults).build();
     }
     
-    private static CriteriaResult buildCriteriaResult(SuccessCriteria range, int modifier, Double successChance) {
+    private static CriteriaResult buildCriteriaResult(SuccessCriteria range, int modifier, Double successChance,
+                                                      int sort) {
         return CriteriaResult
             .builder()
-            .name(range.name())
+            .successCriteria(range)
             .chance(successChance)
             .modifier(modifier)
             .build();
@@ -107,17 +109,18 @@ public class Calc {
                                     .mapToObj(dice -> rangeClosed(1, 6).boxed().toList())
                                     .toList();
         
+        var diceStrings = Lists.cartesianProduct(diceRolls)
+                               .stream()
+                               .map(Calc::IntListToString)
+                               .toList();
+        var collect =
+            uniqueCount(diceStrings);
+        
         Comparator<Integer> keepFunction = keepFunction(extraDice);
-        Map<String, List<List<Integer>>> collect = Lists.cartesianProduct(diceRolls)
-                                                        .stream()
-                                                        .collect(Collectors.groupingBy(a -> a.stream()
-                                                                                             .sorted()
-                                                                                             .map(b -> "" + b)
-                                                                                             .collect(Collectors.joining())));
         return collect
-            .values()
+            .entrySet()
             .stream()
-            .map(lists -> Map.entry(lists.getFirst(), lists.size()))
+            .map(entry -> Map.entry(stringToIntList(entry.getKey()), entry.getValue()))
             .map(roll -> new DiceRoll(roll.getKey()
                                           .stream()
                                           .sorted(keepFunction)
@@ -126,6 +129,35 @@ public class Calc {
                                           .toList(), modifier, roll.getValue()))
             .toList();
     }
+    
+    private static <T> Map<T, Integer> uniqueCount(List<T> collection) {
+        return collection.stream().collect(uniqCount());
+        //return collection.stream().collect(Collectors.toMap(Function.identity(), a -> 1, Integer::sum));
+    }
+    
+    private static <T> Collector<T, Map<T, Integer>, Map<T, Integer>> uniqCount() {
+        return Collector.of(
+            HashMap::new,
+            (map, count) -> map.merge(count, 1, Integer::sum),
+            (map1, map2) -> {
+                map2.forEach((key, value) -> map1.merge(key, value, Integer::sum));
+                return map1;
+            },
+            Collector.Characteristics.IDENTITY_FINISH);
+    }
+    
+    private static List<Integer> stringToIntList(String string) {
+        return Arrays.stream(string.split("")).map(Integer::parseInt).toList();
+    }
+    
+    private static String IntListToString(List<Integer> a) {
+        return a.stream()
+                .mapToInt(b -> b)
+                .sorted()
+                .mapToObj(String::valueOf)
+                .collect(Collectors.joining());
+    }
+    
     
     /**
      * Sorts the lowest first, if extra dice is negative and highest first if positive
