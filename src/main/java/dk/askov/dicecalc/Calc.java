@@ -75,15 +75,13 @@ public class Calc {
                          .map(range -> buildCriteriaResult(
                              range,
                              modifierPair.getLeft(),
-                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()),
-                             range.sort())))
+                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()))))
                      .sorted(Comparator.comparing(CriteriaResult::sort))
                      .toList();
         return resultBuilder.results(criteriaResults).build();
     }
     
-    private static CriteriaResult buildCriteriaResult(SuccessCriteria range, int modifier, Double successChance,
-                                                      int sort) {
+    private static CriteriaResult buildCriteriaResult(SuccessCriteria range, int modifier, Double successChance) {
         return CriteriaResult
             .builder()
             .successCriteria(range)
@@ -130,7 +128,7 @@ public class Calc {
             .toList();
     }
     
-    private static <T> Map<T, Integer> uniqueCount(List<T> collection) {
+    static <T> Map<T, Integer> uniqueCount(List<T> collection) {
         return collection.stream().collect(uniqCount());
         //return collection.stream().collect(Collectors.toMap(Function.identity(), a -> 1, Integer::sum));
     }
@@ -146,23 +144,25 @@ public class Calc {
             Collector.Characteristics.IDENTITY_FINISH);
     }
     
-    private static List<Integer> stringToIntList(String string) {
+    static List<Integer> stringToIntList(String string) {
         return Arrays.stream(string.split("")).map(Integer::parseInt).toList();
     }
     
-    private static String IntListToString(List<Integer> a) {
-        return a.stream()
-                .mapToInt(b -> b)
-                .sorted()
-                .mapToObj(String::valueOf)
-                .collect(Collectors.joining());
+    static String IntListToString(List<Integer> a) {
+
+        List<String> list = a.stream()
+                             .mapToInt(b -> b)
+                             .sorted()
+                             .mapToObj(String::valueOf)
+                             .toList();
+        return String.join("", list);
     }
     
     
     /**
      * Sorts the lowest first, if extra dice is negative and highest first if positive
      */
-    private static Comparator<Integer> keepFunction(int extraDice) {
+    static Comparator<Integer> keepFunction(int extraDice) {
         return extraDice < 0 ? Comparator.naturalOrder() : Comparator.reverseOrder();
     }
 }
