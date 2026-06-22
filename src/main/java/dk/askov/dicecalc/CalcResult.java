@@ -10,9 +10,20 @@ import java.util.List;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+/**
+ * The result of a dice roll calculation for a given set of criteria.
+ *
+ * @param extraDice the number of extra dice added (or removed, if negative)
+ * @param results   the per-criteria results
+ */
 @Builder
 public record CalcResult(int extraDice, List<CriteriaResult> results) {
     
+    /**
+     * Formats the calculation results as a human-readable table.
+     *
+     * @return the formatted result string
+     */
     public String format() {
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); PrintStream out = new PrintStream(bytes)) {
             out.printf("Extra Dice=%+d%n", this.extraDice());
@@ -67,16 +78,33 @@ public record CalcResult(int extraDice, List<CriteriaResult> results) {
 }
 
 
+/**
+ * A single row in the result table, associating a success criterion with a
+ * modifier value and the computed probability.
+ *
+ * @param successCriteria the success criterion evaluated
+ * @param modifier        the modifier applied to dice rolls
+ * @param chance          the probability of this criterion succeeding (0.0 – 1.0)
+ */
 @Builder
 record CriteriaResult(SuccessCriteria successCriteria, int modifier, Double chance) {
+    /**
+     * @return the display name of the underlying success criterion
+     */
     public String name() {
         return successCriteria.name();
     }
     
+    /**
+     * @return the predicate used to test dice rolls against this criterion
+     */
     public Predicate<DiceRoll> criteria() {
         return successCriteria.criteria();
     }
     
+    /**
+     * @return a numeric order used for sorting criteria in output
+     */
     public int sort() {
         return successCriteria.sort();
     }

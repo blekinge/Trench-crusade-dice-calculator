@@ -8,10 +8,10 @@ import org.apache.commons.lang3.tuple.Triple;
 import javax.annotation.Nullable;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.function.Predicate;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
@@ -20,9 +20,9 @@ import static java.util.stream.IntStream.rangeClosed;
 
 public class Calc {
     
-    public static void main(String[] args) {
+    static void main(String[] args) {
         int keep = 2;
-        IntegerRange diceNumber = IntegerRange.of(7, 7);
+        IntegerRange diceNumber = IntegerRange.of(8, 8);
         
         IntegerRange injuryModifierRange = IntegerRange.of(-3, 2);
         diceNumber.toIntStream()
@@ -66,24 +66,24 @@ public class Calc {
         
         var criteriaResults =
             modifiers.toIntStream()
-                     .boxed()
-                     .map(modifier -> Triple.of(modifier,
-                                                calculations.get(modifier),
-                                                calculations.get(modifier).stream().mapToInt(DiceRoll::count).sum()))
+                     //.boxed()
+                     .mapToObj(modifier -> Triple.of(modifier,
+                                                     calculations.get(modifier),
+                                                     calculations.get(modifier)
+                                                                 .stream()
+                                                                 .mapToInt(DiceRoll::count).sum()))
                      .flatMap(modifierPair -> ranges
                          .stream()
                          .map(range -> buildCriteriaResult(
                              range,
                              modifierPair.getLeft(),
-                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()),
-                             range.sort())))
+                             getSuccessChance(modifierPair.getMiddle(), range.criteria(), modifierPair.getRight()))))
                      .sorted(Comparator.comparing(CriteriaResult::sort))
                      .toList();
         return resultBuilder.results(criteriaResults).build();
     }
     
-    private static CriteriaResult buildCriteriaResult(SuccessCriteria range, int modifier, Double successChance,
-                                                      int sort) {
+    private static CriteriaResult buildCriteriaResult(SuccessCriteria range, int modifier, Double successChance) {
         return CriteriaResult
             .builder()
             .successCriteria(range)
@@ -110,52 +110,42 @@ public class Calc {
                                     .toList();
         
         var diceStrings = Lists.cartesianProduct(diceRolls)
-                               .stream()
-                               .map(Calc::IntListToString)
-                               .toList();
-        var collect =
-            uniqueCount(diceStrings);
+                               .parallelStream()
+                               .map(a -> a.stream()
+                                          //.mapToInt(b -> b)
+                                          .sorted()
+                                          .map(String::valueOf)
+                                          //.reduce("", (i, j) -> i + j)
+                                   .collect(Collectors.joining())
+                                   )
+                               .collect(uniqCount());
         
         Comparator<Integer> keepFunction = keepFunction(extraDice);
-        return collect
+        return diceStrings
             .entrySet()
             .stream()
-            .map(entry -> Map.entry(stringToIntList(entry.getKey()), entry.getValue()))
-            .map(roll -> new DiceRoll(roll.getKey()
-                                          .stream()
-                                          .sorted(keepFunction)
-                                          .limit(keep)
-                                          .sorted()
-                                          .toList(), modifier, roll.getValue()))
+            //.map(entry -> Map.entry(stringToIntList(entry.getKey()), entry.getValue()))
+            .map(roll -> new DiceRoll(
+                Arrays.stream(roll.getKey().split("")).map(Integer::parseInt).toList()
+                      .stream()
+                      .sorted(keepFunction)
+                      .limit(keep)
+                      .sorted()
+                      .toList(),
+                modifier,
+                roll.getValue()))
             .toList();
     }
     
-    private static <T> Map<T, Integer> uniqueCount(List<T> collection) {
-        return collection.stream().collect(uniqCount());
-        //return collection.stream().collect(Collectors.toMap(Function.identity(), a -> 1, Integer::sum));
-    }
-    
-    private static <T> Collector<T, Map<T, Integer>, Map<T, Integer>> uniqCount() {
+    private static <KEY> Collector<KEY, Map<KEY, Integer>, Map<KEY, Integer>> uniqCount() {
         return Collector.of(
-            HashMap::new,
+            TreeMap::new,
             (map, count) -> map.merge(count, 1, Integer::sum),
             (map1, map2) -> {
                 map2.forEach((key, value) -> map1.merge(key, value, Integer::sum));
                 return map1;
             },
             Collector.Characteristics.IDENTITY_FINISH);
-    }
-    
-    private static List<Integer> stringToIntList(String string) {
-        return Arrays.stream(string.split("")).map(Integer::parseInt).toList();
-    }
-    
-    private static String IntListToString(List<Integer> a) {
-        return a.stream()
-                .mapToInt(b -> b)
-                .sorted()
-                .mapToObj(String::valueOf)
-                .collect(Collectors.joining());
     }
     
     
